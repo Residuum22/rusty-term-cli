@@ -1,48 +1,36 @@
-mod serial;
-use std::env;
+#![deny(warnings)]
+use clap::{ArgAction, Parser};
+use log::{info, LevelFilter};
+use simple_logger;
+mod rusty_term;
 
-#[cfg(unix)]
-const DEFAULT_TTY: &str = "/dev/ttyUSB0";
-#[cfg(windows)]
-const DEFAULT_TTY: &str = "COM5";
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short, long, action=ArgAction::SetTrue, default_value = "false")]
+    pub list: bool,
 
-fn check_input() -> usize {
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).unwrap();
-    let index = input.trim().parse::<usize>().unwrap();
-    index as usize
+    #[arg(short, long, default_value = "DUMMY")]
+    pub port: String,
+
+    #[arg(short, long, default_value = "115200")]
+    #[arg(value_parser = clap::value_parser!(u32).range(50..=921600))]
+    pub baud_rate: u32,
 }
 
-#[tokio::main]
-async fn main() {
-    let mut args = env::args();
-    let _tty_path = args.nth(1).unwrap_or_else(|| DEFAULT_TTY.into());
-    let available_baud_rates: Vec<i32> = vec![115_200, 9600, 4800, 2400, 1200, 300];
-    
-    // Print available serial ports with the index
-    let ports: Vec<String> = serial::detect_serial_ports();
-
-    if ports.is_empty() {
-        println!("No serial ports found!");
-        return;
-    }
-
-    println!("Enter the index of the port to connect to: ");
-    for (i, port) in ports.iter().enumerate() {
-        println!("{}: {}", i, port);
-    }
-    let tty_index: usize = check_input();
-    let tty_path = ports.get(tty_index).unwrap().clone();
-
-    println!("Enter the baud rate: ");
-    for (i, baud_rate) in available_baud_rates.iter().enumerate() {
-        println!("{}: {}", i, baud_rate);
-    }
-    let baud_rate_index = check_input();
-    let baud_rate = available_baud_rates.get(baud_rate_index as usize).unwrap().clone() as u32;
-
-    let _ = serial::setup_serial(tty_path, baud_rate).await;
-    loop {
-        // Keep the main thread alive
+fn main() {
+    simple_logger::SimpleLogger::new()
+        .with_level(LevelFilter::Info)
+        .without_timestamps()
+        .init()
+        .unwrap();
+    let args = Args::parse();
+    if args.list {
+        info!("Listing serial ports...");
+        rusty_term::print_serial_ports();
+    } else {
+        info!("Opening serial port: {}", args.port);
+        info!("Baud rate: {}", args.baud_rate);
+        let _ = rusty_term::run_rusty_term(args.port, args.baud_rate);
     }
 }

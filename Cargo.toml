@@ -7,9 +7,8 @@ author = "Residuum22"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# Crates to get tokio_serial example to work.
-tokio-serial = "5.4.1"
-tokio = { version = "1.18.0", features = ["full", "io-util"] }
-futures = "0.3.21"
-tokio-util = { version = "0.6.3", features = ["codec"] }
 bytes = "1.1.0"
+log = "0.4"
+serialport = "4.7"
+simple_logger = "5.0"
+clap = { version = "4.5", features = ["derive"] }
