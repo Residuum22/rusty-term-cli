@@ -1,9 +1,11 @@
+use clap::error;
 use log;
 use log::error;
 use serialport;
-use std::io::{ErrorKind, Stdout};
+use std::io::{BufRead, ErrorKind, Stdout};
 use std::io::{BufWriter, Read, Write};
-use std::thread;
+use std::{result, thread};
+use std::sync::{Arc, Mutex};
 
 const DEFAULT_BUFFER_SIZE: usize = 1024;
 
@@ -16,7 +18,6 @@ pub fn print_serial_ports() {
 
 fn open_port(port_name: String, baud_rate: u32) -> Box<dyn serialport::SerialPort> {
     let port = serialport::new(port_name, baud_rate)
-        .timeout(std::time::Duration::from_secs(5))
         .open()
         .expect("Failed to open serial port!");
     port
@@ -27,33 +28,40 @@ fn write_to_stdout(stdout: &mut BufWriter<Stdout>, buffer: &[u8], n: usize) {
     stdout.flush().unwrap();
 }
 
-fn serial_xd(port: &mut dyn serialport::SerialPort, buffer: &mut [u8]) -> Result<usize, std::io::Error> {
+fn read_serial_port_loop(port: Arc<Mutex<Box<dyn serialport::SerialPort>>>) {
+    let mut buffer = [0u8; DEFAULT_BUFFER_SIZE];
     loop {
-        let n = port.read(buffer)?;
-        if n > 0 {
-            write_to_stdout(&mut BufWriter::new(std::io::stdout()), buffer, n);
+        let mut ported = port.lock().unwrap(); // Lock the port for reading
+        let result = ported.read(&mut buffer);
+        match result {
+            Ok(n) => {write_to_stdout(&mut BufWriter::new(std::io::stdout()), &buffer, n)},
+            Err(e) if e.kind() == ErrorKind::TimedOut => continue,
+            Err(e) => {
+                error!("ErrorKind: {} | ErrorMessage: {}", e, e);
+                return;
+            }
         }
     }
 }
 
 pub fn run_rusty_term(port_name: String, baud_rate: u32) -> Result<String, String> {
-    let mut buffer = [0u8; DEFAULT_BUFFER_SIZE];
-    let mut port = open_port(port_name, baud_rate);
-    let mut stdout = BufWriter::new(std::io::stdout());
+    let port = open_port(port_name, baud_rate);
+    let port_lock = Arc::new(Mutex::new(port));
+    let port_lock_clone = Arc::clone(&port_lock);
+    let mut stdin = std::io::stdin().lock();
 
-    thread::spawn(f)
+    let mut buffer_stdin = [0u8; 1024];
+
+    thread::spawn(|| {
+        read_serial_port_loop(port_lock_clone);
+    });
 
     loop {
-        let result = port.read(&mut buffer);
-        match result {
-            Ok(n) => {
-                write_to_stdout(&mut stdout, &buffer, n);
-            }
-            Err(e) if e.kind() == ErrorKind::TimedOut => continue,
-            Err(e) => {
-                error!("ErrorKind: {} | ErrorMessage: {}", e, e);
-                return Err("Error in run_rusty_term".to_string());
-            }
+        let read = stdin.read(&mut buffer_stdin).unwrap();
+        if read == 0 {
+            continue;
         }
+        let mut port_lock = port_lock.lock().unwrap(); // Lock the port for writing
+        port_lock.write(&mut buffer_stdin[..read]).unwrap();
     }
 }

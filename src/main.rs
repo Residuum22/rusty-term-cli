@@ -1,4 +1,3 @@
-#![deny(warnings)]
 use clap::{ArgAction, Parser};
 use log::{info, LevelFilter};
 use simple_logger;
